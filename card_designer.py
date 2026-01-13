@@ -2,10 +2,9 @@ import json
 import textwrap
 import os
 import glob
-import random
 from PIL import Image, ImageDraw, ImageFont
 
-# ✅ V15 디자인: "제목 길이 제어 및 안전한 폰트 사이즈"
+# ✅ V15 디자인 설정
 THEMES = {
     "GENITEACHER": {
         "bg_color": "#FFFFFF",
@@ -26,7 +25,6 @@ THEMES = {
 def load_fonts():
     fonts = {}
     try:
-        # ✅ [수정] 표지 폰트 크기 축소 (85 -> 75) : 넘침 방지
         fonts['title_main'] = ImageFont.truetype("Pretendard-Bold.ttf", 75)
         fonts['title_sub'] = ImageFont.truetype("Pretendard-Medium.ttf", 38)
         
@@ -46,27 +44,35 @@ def load_fonts():
         fonts['logo'] = ImageFont.truetype("malgunbd.ttf", 90)
     return fonts
 
-def prepare_image(brand, target_w, target_h):
+# ✅ [수정됨] 인덱스(img_idx)를 받아 특정 파일(img1, img2...)을 로드
+def prepare_image(brand, target_w, target_h, img_idx):
     asset_dir = f"./assets/{brand}"
-    extensions = ["*.jpg", "*.JPG", "*.png", "*.PNG", "*.jpeg"]
-    images = []
-    for ext in extensions:
-        images.extend(glob.glob(f"{asset_dir}/{ext}"))
     
-    if not images:
+    # img1.*, img2.* 형태의 파일을 찾음 (확장자 무관)
+    search_pattern = f"{asset_dir}/img{img_idx}.*"
+    found_files = glob.glob(search_pattern)
+    
+    # jpg, png 등 우선순위 정렬이 필요하다면 여기서 처리 가능하나, 보통 하나만 둔다고 가정
+    img_path = found_files[0] if found_files else None
+
+    if not img_path:
+        print(f"⚠️ [누락] {brand}/img{img_idx} 이미지를 찾을 수 없습니다. (빈 화면 대체)")
         return Image.new('RGB', (target_w, target_h), "#F5F5F5")
     
-    img_path = random.choice(images)
     try:
         img = Image.open(img_path).convert("RGB")
+        
+        # 이미지 리사이즈 및 크롭 (Center Crop)
         ratio = max(target_w / img.width, target_h / img.height)
         new_size = (int(img.width * ratio), int(img.height * ratio))
         img = img.resize(new_size, Image.LANCZOS)
+        
         left = (img.width - target_w) / 2
         top = (img.height - target_h) / 2
         img = img.crop((left, top, left + target_w, top + target_h))
         return img
-    except:
+    except Exception as e:
+        print(f"❌ 이미지 처리 오류 ({img_path}): {e}")
         return Image.new('RGB', (target_w, target_h), "#F5F5F5")
 
 def draw_text_wrap(draw, text, x, y, font, color, max_width, line_spacing=20):
@@ -89,6 +95,7 @@ def create_card_news(json_filename):
         with open(json_filename, "r", encoding="utf-8") as f:
             data = json.load(f)
     except:
+        print(f"❌ JSON 파일 읽기 실패: {json_filename}")
         return
 
     brand = data.get("brand", "GENITEACHER")
@@ -100,18 +107,22 @@ def create_card_news(json_filename):
     output_dir = f"./output_{brand}"
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"🎨 [{brand}] V15 디자인 생성 중... (제목 최적화)")
+    print(f"🎨 [{brand}] 카드뉴스 생성 시작 (지정 이미지 모드)...")
 
     for i, card in enumerate(cards):
         img = Image.new('RGB', (W, H), theme["bg_color"])
         draw = ImageDraw.Draw(img)
+        
+        # ✅ [수정됨] 현재 카드 순서(i+1)에 맞는 img{i+1} 이미지를 가져옴
+        current_img_idx = i + 1
         
         is_title_page = (i == 0)
         
         if is_title_page:
             # === [표지] ===
             img_h = 850 
-            asset_img = prepare_image(brand, W, img_h)
+            # 여기서 img1을 요청
+            asset_img = prepare_image(brand, W, img_h, current_img_idx)
             img.paste(asset_img, (0, 0))
             
             draw.text((50, 50), f"@{brand}", font=fonts['tag'], fill="white")
@@ -119,11 +130,9 @@ def create_card_news(json_filename):
             text_x = 80
             text_y = img_h + 80
             
-            # 메인 타이틀 (줄바꿈 글자수 약간 여유있게 9 -> 10)
-            # 폰트가 작아졌으므로 width를 늘려도 됨
             headline = card.get("headline", "")
             last_y = draw_text_wrap(draw, headline, text_x, text_y, 
-                                    fonts['title_main'], theme["primary_color"], 10, 25) # line_spacing 30->25
+                                    fonts['title_main'], theme["primary_color"], 10, 25)
             
             sub_text = card.get("sub_text", "")
             if sub_text:
@@ -133,7 +142,8 @@ def create_card_news(json_filename):
         else:
             # === [본문] ===
             img_h = 700
-            asset_img = prepare_image(brand, W, img_h)
+            # 여기서 img2, img3... 을 요청
+            asset_img = prepare_image(brand, W, img_h, current_img_idx)
             img.paste(asset_img, (0, 0))
             
             tag_text = card.get("tag", "").upper()
@@ -158,7 +168,7 @@ def create_card_news(json_filename):
         draw.text((W - page_w - 60, H - 60), page_text, font=fonts['page'], fill="#CCCCCC")
         
         img.save(f"{output_dir}/feed_{i+1:02d}.jpg", quality=95)
-        print(f"  -> 저장: feed_{i+1:02d}.jpg")
+        print(f"  -> 저장: feed_{i+1:02d}.jpg (img{current_img_idx} 사용)")
 
     # [엔딩 페이지]
     last_idx = len(cards) + 1

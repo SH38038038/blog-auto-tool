@@ -4,36 +4,50 @@ const fs = require('fs');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ✅ [수정 1] 모델명 확인 (안정적인 버전 사용 권장)
-// 혹시 2.5 버전을 쓰셔야 한다면 그대로 두셔도 되지만, 404/503 에러가 계속되면 1.5-flash로 바꿔보세요.
-const MODEL_NAME = "gemini-flash-lite-latest";
+// ✅ 안정적인 모델 사용
+const MODEL_NAME = "gemini-flash-lite-latest"; 
 
-const PROMPT_TEMPLATES = {
-  "GENITEACHER": {
-    role: `너는 대한민국 상위 1%를 위한 에듀테크 컨설턴트다.
-    너의 글을 읽는 타겟은 다음과 같다:
-    1. **중고등학생:** 오답노트 만들 시간에 문제 하나 더 풀고 싶어함.
-    2. **학부모:** 내 아이에게 가장 효율적인 학습 도구를 쥐여주고 싶음.
-    3. **학원/독서실 원장:** 우리 학원만의 차별화된 관리 시스템(CRM) 도입을 고민함.
+// ✅ 현재 홍보할 브랜드 (파이썬 이미지 생성 코드와 매칭용)
+const CURRENT_BRAND = "GENITEACHER"; 
 
-    [핵심 메시지]
-    "아직도 가위로 오리고 풀로 붙이나요? 대치동은 펜으로 쓰고 자동 저장합니다."
-    단순한 필기구가 아니라, **'데이터가 남는 공부'**라는 점을 강조하여 
-    학생에겐 '시간 단축', 원장에겐 '학습 데이터 관리'의 이점을 어필하라.`
-  },
-  "PK_ACADEMY": {
-    role: `너는 입시의 본질을 꿰뚫는 대치동 입시 분석가다.
-    타겟: 독학재수생, N수생, 그리고 이들의 부모님.
+// ✅ [핵심 변경] 타겟별 페르소나 및 주제 설정
+const TARGET_CONFIG = {
+  "STUDENT": {
+    role: `너는 공부 효율을 최우선으로 생각하는 '전교 1등 선배' 혹은 '서울대 멘토'다.
+    타겟: 중고등학생 (수험생)
+    어조: 친근함, 팩트 폭격, "너 아직도 그렇게 공부해?", 동기부여
     
     [핵심 메시지]
-    "질문하러 줄 서는 시간도 공부 시간에서 까먹는 겁니다."
-    관리형 독서실의 한계(질문 해결 불가)와 과외의 한계(비용)를 동시에 해결하는
-    **'AI 즉문즉답 시스템'**의 압도적 효율성을 팩트 폭격 스타일로 전달하라.`
+    "오답노트 가위질할 시간에 문제 하나 더 풀어라."
+    "대치동 애들은 이미 태블릿으로 자동 저장한다."
+    공부 시간을 갉아먹는 비효율적인 행동을 지적하고, 스마트한 도구 사용을 권장하라.`,
+    topic: "성적 안 오르는 애들 특징: 오답노트에 목숨 검 (feat. 가위질 그만해)"
+  },
+  "PARENT": {
+    role: `너는 대치동 입시 컨설턴트이자 자녀 교육 전문가다.
+    타겟: 중고등학생 자녀를 둔 학부모
+    어조: 정중함, 신뢰감, 데이터 중심, 공감
+    
+    [핵심 메시지]
+    "아이의 수면 시간과 공부 효율, 도구 하나로 바뀝니다."
+    "학원비만큼 중요한 게 '학습 데이터 관리'입니다."
+    자녀가 단순 노동(필기, 오답 정리)에 지치지 않게 돕는 스마트한 솔루션을 제안하라.`,
+    topic: "우리 아이 수학 점수가 제자리인 이유? '공부 흉내'만 내고 있기 때문입니다."
+  },
+  "OWNER": {
+    role: `너는 학원 경영 컨설턴트이자 에듀테크 비즈니스 파트너다.
+    타겟: 학원장, 공부방/교습소 운영자
+    어조: 비즈니스맨, 전문적, 수익/효율 강조, "원장님" 호칭 사용
+    
+    [핵심 메시지]
+    "강사들이 조교 업무(채점, 제본)하느라 수업 준비를 못 하고 있지 않나요?"
+    "학부모 상담, 감이 아니라 '데이터'로 보여주셔야 등록합니다."
+    학원 운영의 비효율(인건비, 시간)을 줄이고 경쟁력을 높이는 시스템 도입을 강조하라.`,
+    topic: "강사 이탈과 학부모 클레임, '시스템'이 없으면 결국 원장님 탓입니다."
   }
 };
 
-// ✅ [수정 2] 지수 백오프 (Exponential Backoff) 적용
-// 실패할수록 대기 시간을 늘려서 API 차단을 방지합니다.
+// ✅ 지수 백오프 (재시도 로직)
 async function generateWithRetry(model, prompt, retries = 5) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -42,15 +56,11 @@ async function generateWithRetry(model, prompt, retries = 5) {
       return response.text();
     } catch (error) {
       console.error(`⚠️ 에러 발생 (${i + 1}/${retries}): ${error.message}`);
-      
-      if (error.message.includes("429") || error.message.includes("503") || error.message.includes("Overloaded")) {
-        // 대기 시간: 10초 -> 20초 -> 40초 -> ...
-        const waitTime = Math.pow(2, i) * 10000; 
-        console.log(`🕒 서버 혼잡. ${waitTime / 1000}초 대기 후 재시도...`);
+      if (error.message.includes("429") || error.message.includes("503")) {
+        const waitTime = Math.pow(2, i) * 2000; // 대기 시간 점진적 증가
+        console.log(`🕒 ${waitTime / 1000}초 대기 후 재시도...`);
         await new Promise(res => setTimeout(res, waitTime));
       } else {
-        // 429/503 이외의 치명적 에러(인증 실패 등)는 즉시 중단
-        console.error("❌ 치명적 오류로 중단합니다.");
         return null;
       }
     }
@@ -58,213 +68,159 @@ async function generateWithRetry(model, prompt, retries = 5) {
   return null;
 }
 
-async function generateBlogPost(brandType, topic) {
-  // 1. 모델 설정에 JSON 모드 추가 (Gemini 1.5 Flash/Pro 기능)
+// 1. 블로그 글 생성
+async function generateBlogPost(targetKey) {
+  const config = TARGET_CONFIG[targetKey];
+  
   const model = genAI.getGenerativeModel({ 
     model: MODEL_NAME,
-    systemInstruction: PROMPT_TEMPLATES[brandType].role,
-    generationConfig: {
-      responseMimeType: "application/json" // ✨ 이 줄이 핵심입니다! JSON 출력을 강제함
-    }
+    systemInstruction: config.role,
+    generationConfig: { responseMimeType: "application/json" }
   });
   
-  // 2. 프롬프트에 정확한 JSON 스키마(구조) 명시
   const userPrompt = `
-  주제: "${topic}"에 대해 블로그 글 작성.
+  주제: "${config.topic}"에 대해 블로그 글 작성.
   
   [요구사항]
-  1. 구조: 제목, 훅, 본문(3~5개 섹션), 해시태그
-  2. 톤앤매너: 친근하고 신뢰감 있는 어조
+  1. 타겟 독자의 페르소나에 100% 몰입하여 작성할 것.
+  2. 구조: 제목, 훅(Hook), 본문(3~4개 섹션), 해시태그
   
-  [출력 포맷]
-  반드시 아래 JSON 스키마를 엄격히 준수하여 출력할 것. (Markdown 코드 블록 없이 순수 JSON만 반환)
-  
+  [출력 포맷 (JSON Only)]
   {
-    "title": "블로그 제목",
-    "hook_text": "독자의 관심을 끄는 1-2문장",
+    "title": "클릭을 부르는 자극적인 제목",
+    "hook_text": "독자의 공감을 이끌어내는 서두 (2-3문장)",
     "sections": [
-      {
-        "sub_title": "소제목 1",
-        "content": "본문 내용 (줄바꿈은 \\n 사용)"
-      },
-      {
-        "sub_title": "소제목 2",
-        "content": "본문 내용"
-      }
+      { "sub_title": "소제목", "content": "본문 내용 (줄바꿈은 \\n)" }
     ],
-    "hashtags": ["태그1", "태그2", "태그3"]
+    "hashtags": ["태그1", "태그2"]
   }
   `;
 
   try {
     const text = await generateWithRetry(model, userPrompt);
-    
-    if (!text) {
-        console.error(`❌ [실패] 블로그 글 생성 실패 (API 응답 없음) - ${brandType}`);
-        return null;
-    }
-
-    // 혹시 모를 마크다운 코드블록 제거
-    const cleanJson = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    return JSON.parse(cleanJson);
+    if (!text) return null;
+    return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
   } catch (e) { 
-    console.error(`❌ [JSON 파싱 에러] ${e.message}`);
-    console.error(`수신된 텍스트 일부: ${e.text ? e.text.substring(0, 100) : "내용 없음"}`); // 디버깅용
+    console.error(`❌ [JSON 파싱 에러 - ${targetKey}] ${e.message}`);
     return null; 
   }
 }
 
-async function generateCardContent(brandType, blogPostJson) {
+// 2. 카드뉴스 기획 생성
+async function generateCardContent(targetKey, blogPostJson) {
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+  const config = TARGET_CONFIG[targetKey];
   
   const prompt = `
   너는 인스타그램 콘텐츠 기획자다.
-  위 블로그 글을 바탕으로 **총 6장의 카드뉴스 기획안**을 작성하라.
-  !중요! 카드 뉴스 제작시에는 이모티콘이 렌더링 안되기 때문에 사용하지 말 것.
+  위 블로그 글을 바탕으로 **${targetKey}(타겟)**에게 어필할 **6장의 카드뉴스 기획안**을 작성하라.
   
-  [타겟 독자]
-  - 공부 효율을 따지는 똑똑한 **학생**
-  - 자녀 성적과 학습법을 고민하는 **학부모**
-  - 학원 경쟁력을 높이고 싶은 **원장님**
-
   [기획 가이드]
-  1. **Page 1 (표지):** - 폰트가 커야 하므로 **공백 포함 15자 이내**로 제한. 
-     - 줄바꿈(\\n) 필수. 
-     - 질문형이나 도발적인 카피 추천 (예: "원장님, 아직도 복사하시나요?")
-  2. **Page 2~5 (본문):** - 문제 제기(비효율) -> 해결책(솔루션) -> 근거(데이터/기능) -> 기대효과.
-  3. **Page 6 (엔딩):** - 저장 및 프로필 링크 클릭 유도.
+  - **타겟 맞춤형 멘트:**
+    - 학생: "친구야, 아직도 손 아프게 쓰고 있니?"
+    - 학부모: "어머님, 옆집 아이 성적 비결이 궁금하세요?"
+    - 원장님: "원장님, 채점 알바비만 아껴도 월 100입니다."
+  
+  - **Page 1 (표지):** 15자 이내, 임팩트 있는 카피. (줄바꿈 \\n 필수)
+  - **Page 2~5 (본문):** 문제(Pain) -> 해결(Solution) -> 근거/기능 -> 혜택(Benefit)
+  - **Page 6 (엔딩):** 저장 및 프로필 링크 유도
 
   [출력 포맷 (JSON)]
   {
-    "brand": "${brandType}",
+    "brand": "${CURRENT_BRAND}",
     "cards": [
       {
-
-      "page": 1,
-
-      "type": "body",
-
-      "tag": "팩트 체크",
-
-      "headline": "사진 찍는 거?\n아니, 실시간 인식!",
-
-      "body": "사진 찍을 필요도 없어요.\n종이에 쓰면 태블릿에 그대로 뜹니다."
-
-    },
+        "page": 1,
+        "tag": "핵심 질문",
+        "headline": "짧고 강렬한\\n헤드라인",
+        "body": "보조 설명 텍스트"
+      }
       ... (총 6장)
     ]
   }
   `;
 
-  // 블로그 글 생성 실패 시 방어 로직
   if (!blogPostJson) return null;
-
-  const inputPrompt = `[블로그 제목]: ${blogPostJson.title}\n[블로그 내용]: ${JSON.stringify(blogPostJson.sections)}\n\n${prompt}`;
+  const inputPrompt = `[블로그 제목]: ${blogPostJson.title}\n[내용]: ${JSON.stringify(blogPostJson.sections)}\n\n${prompt}`;
 
   try {
     const text = await generateWithRetry(model, inputPrompt);
-    if (!text) return null; // NULL 체크
-
-    const cleanJson = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    return JSON.parse(cleanJson);
+    if (!text) return null;
+    return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
   } catch (e) { return null; }
 }
 
-async function generateInstaCaption(brandType, blogPostJson, cardDataJson) {
+// 3. 인스타 캡션 생성
+async function generateInstaCaption(targetKey, blogPostJson, cardDataJson) {
   const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+  const config = TARGET_CONFIG[targetKey];
 
   const prompt = `
-  너는 SNS 마케팅 전문가다.
-  작성된 블로그 글과 카드뉴스 내용을 바탕으로, **인스타그램 피드에 올릴 '본문 텍스트(Caption)'**를 작성해라.
-
-  [타겟 분석]
-  - 학생: "성적 오르는 꿀팁이네? 저장해야지."
-  - 학부모: "우리 애한테 이거 사줘야겠네."
-  - 학원장: "우리 학원에도 도입해볼까?"
-
-  [작성 가이드]
-  1. **첫 줄(Hook):** 카드뉴스 표지보다 더 구체적이고 호기심을 자극하는 문장.
-  2. **본문:** 줄글 대신 **이모티콘(✅, 🔥, 📚, 💡)**을 활용한 리스트(Bullet point) 형태로 가독성 높게.
-  3. **내용 구성:**
-     - 😫 Pain Point: 기존 공부/운영의 비효율성 (가위질 노동, 질문 대기 등)
-     - ✨ Solution: 서비스의 핵심 기능 (스마트펜 자동저장, AI 즉답)
-     - 🚀 Benefit: 성적 상승, 워라밸, 학원 차별화
-  4. **마무리(CTA):** "더 자세한 내용은 프로필 링크 확인!" 또는 "도입 문의는 DM 주세요."
-  5. **해시태그:** 타겟별 검색 키워드 15개 이상 (예: #공스타그램 #수험생 #학원운영 #원장님 #에듀테크 등)
-
-  출력은 JSON이 아니라 **일반 텍스트(String)** 로 해줘.
+  타겟 독자(${targetKey})의 감성을 자극하는 인스타그램 본문(Caption)을 작성해.
+  
+  [작성 요령]
+  1. 첫 줄은 무조건 "더 보기"를 누르게 만드는 후킹 문구.
+  2. 본문은 이모티콘을 적절히 사용하여 읽기 쉽게.
+  3. 마지막엔 행동 유도(저장, 공유, 프로필 링크 클릭).
+  4. 해시태그는 타겟이 검색할만한 키워드 15개.
+  
+  출력은 JSON이 아니라 일반 텍스트(String)로.
   `;
 
   if (!blogPostJson || !cardDataJson) return null;
-
-  const inputPrompt = `[블로그 정보]: ${JSON.stringify(blogPostJson)}\n[카드뉴스 기획]: ${JSON.stringify(cardDataJson)}\n\n${prompt}`;
+  const inputPrompt = `[블로그]: ${JSON.stringify(blogPostJson)}\n[카드뉴스]: ${JSON.stringify(cardDataJson)}\n\n${prompt}`;
 
   try {
     return await generateWithRetry(model, inputPrompt);
   } catch (e) { return null; }
 }
 
-function saveToMarkdown(fileName, data) {
-  if (!data) return; // 데이터 없으면 저장 안함
-  const content = `# ${data.title}\n\n> ${data.hook_text}\n\n---\n\n${data.sections.map(s => `## ${s.sub_title}\n${s.content}`).join('\n\n')}\n\n---\n${data.hashtags.map(t=>`#${t}`).join(' ')}`;
-  fs.writeFileSync(fileName, content.trim());
-  console.log(`💾 블로그 저장 완료: ${fileName}`);
+function saveFile(fileName, content) {
+  fs.writeFileSync(fileName, content);
+  console.log(`💾 저장 완료: ${fileName}`);
 }
 
 async function run() {
-  console.log(`🚀 콘텐츠 생성 프로세스 시작... (Model: ${MODEL_NAME})`);
-
-  // 1. 지니티처
-  const topic1 = "학원 원장님과 전교 1등이 주목하는, 가위질 필요 없는 스마트 오답노트";
-  console.log(`\n[1] 지니티처 콘텐츠 생성 중...`);
+  console.log(`🚀 [${CURRENT_BRAND}] 타겟별 콘텐츠 생성 시작...`);
   
-  const post1 = await generateBlogPost("GENITEACHER", topic1);
-  if(post1) {
-    saveToMarkdown("geniteacher_post.md", post1);
-    const card1 = await generateCardContent("GENITEACHER", post1);
-    
-    if(card1) {
-        fs.writeFileSync("card_data_genie.json", JSON.stringify(card1, null, 2));
-        console.log(`💾 카드뉴스 데이터 저장 완료: card_data_genie.json`);
+  // 타겟 목록 순회 (STUDENT -> PARENT -> OWNER)
+  const targets = Object.keys(TARGET_CONFIG);
 
-        const caption1 = await generateInstaCaption("GENITEACHER", post1, card1);
-        if(caption1) {
-            fs.writeFileSync("insta_caption_genie.txt", caption1);
-            console.log(`💾 인스타 캡션 저장 완료: insta_caption_genie.txt`);
+  for (const target of targets) {
+    console.log(`\n=============================================`);
+    console.log(`🎯 Target: ${target} (생성 중...)`);
+    console.log(`=============================================`);
+
+    // 1. 블로그 글
+    const post = await generateBlogPost(target);
+    if (post) {
+      // 마크다운 변환 저장
+      const mdContent = `# ${post.title}\n\n> ${post.hook_text}\n\n---\n\n${post.sections.map(s => `## ${s.sub_title}\n${s.content}`).join('\n\n')}\n\n---\n${post.hashtags.map(t=>`#${t}`).join(' ')}`;
+      saveFile(`post_${target.toLowerCase()}.md`, mdContent);
+
+      // 2. 카드뉴스 데이터
+      const cardData = await generateCardContent(target, post);
+      if (cardData) {
+        saveFile(`card_data_${target.toLowerCase()}.json`, JSON.stringify(cardData, null, 2));
+
+        // 3. 인스타 캡션
+        const caption = await generateInstaCaption(target, post, cardData);
+        if (caption) {
+          saveFile(`caption_${target.toLowerCase()}.txt`, caption);
         }
+      }
+    } else {
+      console.log(`⚠️ ${target} 콘텐츠 생성 실패.`);
     }
-  } else {
-    console.log("⚠️ 지니티처 콘텐츠 생성 실패 (API 응답 없음)");
+
+    // API 과부하 방지 (10초 대기)
+    if (target !== targets[targets.length - 1]) {
+        console.log("\n⏳ 다음 타겟 생성을 위해 10초 대기...");
+        await new Promise(r => setTimeout(r, 10000));
+    }
   }
 
-  // 쿨다운 (안전하게 10초)
-  console.log("\n⏳ 다음 작업을 위해 10초 대기 중...");
-  await new Promise(r => setTimeout(r, 10000));
-
-  // 2. PK학원
-  const topic2 = "독학재수 성공의 열쇠: 질문 대기시간 0초의 비밀";
-  console.log(`\n[2] PK학원 콘텐츠 생성 중...`);
-  
-  const post2 = await generateBlogPost("PK_ACADEMY", topic2);
-  if(post2) {
-    saveToMarkdown("pk_academy_post.md", post2);
-    const card2 = await generateCardContent("PK_ACADEMY", post2);
-    
-    if(card2) {
-        fs.writeFileSync("card_data_pk.json", JSON.stringify(card2, null, 2));
-        console.log(`💾 카드뉴스 데이터 저장 완료: card_data_pk.json`);
-
-        const caption2 = await generateInstaCaption("PK_ACADEMY", post2, card2);
-        if(caption2) {
-            fs.writeFileSync("insta_caption_pk.txt", caption2);
-            console.log(`💾 인스타 캡션 저장 완료: insta_caption_pk.txt`);
-        }
-    }
-  } else {
-    console.log("⚠️ PK학원 콘텐츠 생성 실패 (API 응답 없음)");
-  }
-  
-  console.log("\n✨ 모든 작업 완료! 생성된 파일을 확인하세요.");
+  console.log("\n✨ 모든 타겟 작업 완료!");
 }
 
 run();
