@@ -5,7 +5,7 @@ const fs = require('fs');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ✅ 안정적인 모델 사용
-const MODEL_NAME = "gemini-flash-lite-latest"; 
+const MODEL_NAME = "gemini-2.5-flash"; 
 
 // ✅ 현재 홍보할 브랜드 (파이썬 이미지 생성 코드와 매칭용)
 const CURRENT_BRAND = "GENITEACHER"; 
@@ -83,7 +83,7 @@ async function generateBlogPost(targetKey) {
   
   [요구사항]
   1. 타겟 독자의 페르소나에 100% 몰입하여 작성할 것.
-  2. 구조: 제목, 훅(Hook), 본문(3~4개 섹션), 해시태그
+  2. 구조: 제목, 훅(Hook), 본문(3~4개 섹션, 분량 각 5줄 이상), 해시태그
   
   [출력 포맷 (JSON Only)]
   {
@@ -114,6 +114,7 @@ async function generateCardContent(targetKey, blogPostJson) {
   const prompt = `
   너는 인스타그램 콘텐츠 기획자다.
   위 블로그 글을 바탕으로 **${targetKey}(타겟)**에게 어필할 **6장의 카드뉴스 기획안**을 작성하라.
+  !중요! python으로 카드뉴스 생성 시 이모티콘을 인식하지 못하니 절대 사용하지 마라.
   
   [기획 가이드]
   - **타겟 맞춤형 멘트:**
@@ -121,9 +122,11 @@ async function generateCardContent(targetKey, blogPostJson) {
     - 학부모: "어머님, 옆집 아이 성적 비결이 궁금하세요?"
     - 원장님: "원장님, 채점 알바비만 아껴도 월 100입니다."
   
-  - **Page 1 (표지):** 15자 이내, 임팩트 있는 카피. (줄바꿈 \\n 필수)
+  - **Page 1 (표지):** 반드시 15자 이내, 임팩트 있는 카피. (줄바꿈 \\n 필수)
   - **Page 2~5 (본문):** 문제(Pain) -> 해결(Solution) -> 근거/기능 -> 혜택(Benefit)
   - **Page 6 (엔딩):** 저장 및 프로필 링크 유도
+  - headline은 각 카드마다 15자 이내로 강렬하게.
+  - body는 각 카드마다 50자 이내로 간결하게.
 
   [출력 포맷 (JSON)]
   {
@@ -157,7 +160,8 @@ async function generateInstaCaption(targetKey, blogPostJson, cardDataJson) {
 
   const prompt = `
   타겟 독자(${targetKey})의 감성을 자극하는 인스타그램 본문(Caption)을 작성해.
-  
+  !중요! 인스타그램은 **글자** 이런 형태의 강조 문구를 이해하지 못하니, 일반 문장으로 작성할 것.
+
   [작성 요령]
   1. 첫 줄은 무조건 "더 보기"를 누르게 만드는 후킹 문구.
   2. 본문은 이모티콘을 적절히 사용하여 읽기 쉽게.
